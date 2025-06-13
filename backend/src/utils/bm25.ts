@@ -4,12 +4,18 @@ import { bm25Storage } from "../config/initialize";
 import { type BM25Result } from "../types";
 
 export function createBM25Index(documents: Document[], indexName: string): void {
-    // Create BM25 retriever with documents
     const bm25Retriever = BM25Retriever.fromDocuments(documents, { k: 10 });
 
-    // Store retriever and documents
     bm25Storage[indexName as keyof typeof bm25Storage].set('index', bm25Retriever);
     bm25Storage[indexName as keyof typeof bm25Storage].set('documents', documents);
+}
+
+function sanitizeQueryForBM25(query: string): string {
+    return query
+        .replace(/[.*+?^${}()|[\]\\]/g, ' ')
+        .replace(/['"]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
 }
 
 export async function searchBM25(
@@ -26,27 +32,28 @@ export async function searchBM25(
     }
 
     try {
-        // Update k parameter for retrieval count
+        const sanitizedQuery = sanitizeQueryForBM25(query);
+        console.log(`BM25 Query: "${query}" → Sanitized: "${sanitizedQuery}"`);
+
         bm25Retriever.k = topK;
 
-        // If we have pre-filtered documents, create a temporary retriever
         if (preFilteredDocs && preFilteredDocs.length > 0) {
             const tempRetriever = BM25Retriever.fromDocuments(preFilteredDocs, { k: topK });
-            const retrievedDocs = await tempRetriever.invoke(query);
+            const retrievedDocs = await tempRetriever.invoke(sanitizedQuery);
             return retrievedDocs.map((doc, index) => ({
                 document: doc,
                 score: 1 - (index * 0.1)
             }));
         }
 
-        // Otherwise use the main retriever
-        const retrievedDocs = await bm25Retriever.invoke(query);
+        const retrievedDocs = await bm25Retriever.invoke(sanitizedQuery);
         return retrievedDocs.map((doc, index) => ({
             document: doc,
             score: 1 - (index * 0.1)
         }));
     } catch (error) {
         console.error('Error in BM25 search:', error);
+        console.error('Original query:', query);
         return [];
     }
 }

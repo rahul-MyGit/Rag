@@ -13,19 +13,30 @@ export interface ChunkMetadata {
     keywords?: string[];
     timestamp?: string;
     createdAt?: string;
-}
-
-export interface IntentAnalysis {
-    needsDocuments: boolean;
-    needsTranscripts: boolean;
-    userId?: string;
-    confidence: number;
-    queryType: 'factual' | 'conversational' | 'analytical' | 'mixed';
+    originalContent?: string;
 }
 
 export interface BM25Result {
     document: Document;
     score: number;
+}
+
+export interface QueryIntent {
+    needsDocuments: boolean;
+    needsTranscripts: boolean;
+    confidence: number;
+    queryType: 'document' | 'transcript' | 'mixed';
+}
+
+export interface RetrievalResult {
+    content: string;
+    confidence: number;
+    sources: Array<{
+        type: string;
+        id: string;
+        score: number;
+    }>;
+    searchStrategy: 'semantic' | 'bm25' | 'hybrid' | 'failed' | 'max-attempts-non-relevant' | 'max-attempts-reached';
 }
 
 export interface HybridSearchResult {
@@ -35,9 +46,12 @@ export interface HybridSearchResult {
     combinedScore: number;
 }
 
-export interface RetrievalResult {
-    chunks: Document[];
-    sources: string[];
-    confidence: number;
-    searchStrategy: string;
-}
+// export interface PineconeMatch {
+//     id: string;
+//     score: number;
+//     metadata?: {
+//         text?: string;
+//         type?: string;
+//         id?: string;
+//     };
+// }

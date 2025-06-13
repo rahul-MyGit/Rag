@@ -4,16 +4,21 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "dev": "bun run src/index.ts"
+    "dev": "bun run src/index.ts",
+    "ingest": "bun run src/main/ingestion.ts",
+    "start": "bun run src/index.ts",
+    "ingest:all": "bun run src/main/ingestion.ts && bun run src/index.ts"
   },
   "devDependencies": {
     "@types/bun": "latest",
+    "@types/dotenv": "^8.2.3",
     "@types/express": "^5.0.3"
   },
   "peerDependencies": {
     "typescript": "^5"
   },
   "dependencies": {
+    "@langchain/anthropic": "^0.3.22",
     "@langchain/cohere": "^0.3.4",
     "@langchain/community": "^0.3.46",
     "@langchain/core": "^0.3.58",
@@ -23,13 +28,16 @@
     "@types/natural": "^6.0.1",
     "@types/node": "^24.0.1",
     "@types/pdf-parse": "^1.1.5",
+    "@types/pdfjs-dist": "^2.10.378",
     "@types/stopword": "^2.0.3",
     "@types/uuid": "^10.0.0",
     "dotenv": "^16.5.0",
     "express": "^5.1.0",
     "langchain": "^0.3.28",
     "natural": "^8.1.0",
+    "p-limit": "^6.2.0",
     "pdf-parse": "^1.1.1",
+    "pdfjs-dist": "^5.3.31",
     "stemmer": "^2.0.1",
     "stopword": "^3.1.4",
     "uuid": "^11.1.0"

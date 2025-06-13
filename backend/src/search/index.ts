@@ -1,38 +1,45 @@
 import { CONFIG } from "../config";
-import { type IntentAnalysis, type BM25Result, type HybridSearchResult } from "../types";
-import { llm, docVectorStore, transcriptVectorStore, reranker } from "../config/initialize";
+import { type BM25Result, type HybridSearchResult, type QueryIntent } from "../types";
+import { llm, docVectorStore, transcriptVectorStore } from "../config/initialize";
 import { Document } from "langchain/document";
 import { searchBM25 } from "../utils/bm25";
 
-// Define SearchResult type
 interface SearchResult {
     document: Document;
     score: number;
     source: "semantic" | "bm25";
 }
 
-export async function analyzeQueryIntent(query: string): Promise<IntentAnalysis> {
-    const prompt = `Analyze the following query and provide a JSON response with the following fields:
-  
-  Query: "${query}"
-  
-  Analyze:
-  1. needsDocuments: Does this query need information from formal documents? (boolean)
-  2. needsTranscripts: Does this query need information from conversation transcripts? (boolean)
-  3. userId: If transcript info is needed, which user? ("nathan", "robert", "both", or null)
-  4. confidence: How confident are you in this analysis? (0.0-1.0)
-  5. queryType: What type of query is this? ("factual", "conversational", "analytical", "mixed")
-  
-  Examples:
-  - "What are the key features mentioned in the documentation?" → needsDocuments: true, needsTranscripts: false
-  - "What did Nathan say about the project?" → needsDocuments: false, needsTranscripts: true, userId: "nathan"
-  - "Compare the documentation with Robert's feedback" → needsDocuments: true, needsTranscripts: true, userId: "robert"
-  
-  Respond only with valid JSON:`;
+export async function analyzeQueryIntent(query: string): Promise<QueryIntent> {
+    const prompt = `Analyze the following query and determine if it needs document or transcript information or both.
+Query: "${query}"
+
+Consider the following guidelines:
+- If query is about policy, guidelines, rules, compliance, or violations - it needs BOTH documents and transcripts (queryType: "mixed")
+- If query is about specific conversations, interactions, or "what did I say" - it needs transcripts (queryType: "transcript")
+- If query is about general information, documentation, or procedures - it needs documents (queryType: "document")
+- If query combines conversation content with policy/guidelines - it needs both (queryType: "mixed")
+
+Examples:
+- "Did I say anything against policy on call?" → needs both documents (policy info) and transcripts (conversation content) → "mixed"
+- "What medication did I suggest?" → needs transcripts only → "transcript"
+- "What is the company policy on..." → needs documents only → "document"
+
+Respond with a JSON object in this exact format:
+{
+    "needsDocuments": boolean,
+    "needsTranscripts": boolean,
+    "confidence": number between 0 and 1,
+    "queryType": "document" | "transcript" | "mixed"
+}
+
+Respond only with valid JSON:`;
 
     try {
         const response = await llm.invoke(prompt);
-        return JSON.parse(response.content as string);
+        const content = response.content as string;
+        const cleanedContent = content.replace(/```json\n?|\n?```/g, '').trim();
+        return JSON.parse(cleanedContent);
     } catch (error) {
         console.error('Error analyzing query intent:', error);
         return {
@@ -47,57 +54,82 @@ export async function analyzeQueryIntent(query: string): Promise<IntentAnalysis>
 export async function performHybridSearch(
     query: string,
     userId: number,
+    type: 'documents' | 'transcripts' = 'transcripts',
     topK: number = 10
 ): Promise<SearchResult[]> {
-    if (!transcriptVectorStore) {
-        throw new Error("Transcript vector store not initialized");
+    const vectorStore = type === 'documents' ? docVectorStore : transcriptVectorStore;
+    
+    if (!vectorStore) {
+        throw new Error(`${type} vector store not initialized`);
     }
 
-    // Get all embeddings for this client first
-    const clientFilter = {
-        filter: {
-            clientId: userId
-        }
-    };
+    console.log(`\n=== HYBRID SEARCH DEBUG ===`);
+    console.log(`Query: "${query}"`);
+    console.log(`Type: ${type}, UserId: ${userId}, TopK: ${topK}`);
 
-    // Get all documents for this client
-    const clientDocs = await transcriptVectorStore.similaritySearch("", 1000, clientFilter);
+    let clientFilter: Record<string, any> = {};
+    let clientDocs: Document[] = [];
 
-    // Perform semantic search on client docs
-    const semanticResults = await transcriptVectorStore.similaritySearchWithScore(
-        query,
-        topK,
-        clientFilter
-    );
+    if (type === 'transcripts') {
+        clientFilter = { clientId: userId };
+        clientDocs = await vectorStore.similaritySearch("", 1000, clientFilter);
+        console.log(`Pre-filtered TRANSCRIPT documents for user ${userId}: ${clientDocs.length}`);
+    } else {
+        clientDocs = await vectorStore.similaritySearch("", 1000);
+        console.log(`Pre-filtered DOCUMENT documents (global): ${clientDocs.length}`);
+    }
 
-    // Perform BM25 search on client docs
+    let semanticResults: [Document, number][];
+    if (type === 'transcripts') {
+        semanticResults = await vectorStore.similaritySearchWithScore(
+            query,
+            topK,
+            clientFilter
+        );
+    } else {
+        semanticResults = await vectorStore.similaritySearchWithScore(
+            query,
+            topK
+        );
+    }
+
+    console.log(`Semantic search results: ${semanticResults.length}`);
+    semanticResults.forEach(([doc, score], index) => {
+        console.log(`  Semantic ${index + 1}: Score ${score.toFixed(4)}, Source: ${doc.metadata.source || doc.metadata.fileName}`);
+        console.log(`    Content preview: "${doc.pageContent.substring(0, 150)}..."`);
+    });
+
     const bm25Results = await searchBM25(
         query,
-        "transcripts",
+        type,
         topK,
         clientDocs
     );
+    console.log(`BM25 search results: ${bm25Results.length}`);
+    bm25Results.forEach(({ document, score }, index) => {
+        console.log(`  BM25 ${index + 1}: Score ${score.toFixed(4)}, Source: ${document.metadata.source || document.metadata.fileName}`);
+        console.log(`    Content preview: "${document.pageContent.substring(0, 150)}..."`);
+    });
 
-    // Combine and rerank results
     const combinedResults = new Map<string, SearchResult>();
 
-    // Add semantic results
     semanticResults.forEach(([doc, score]: [Document, number]) => {
-        combinedResults.set(doc.metadata.id, {
+        const id = doc.metadata.source || doc.metadata.fileName || doc.metadata.id;
+        combinedResults.set(id, {
             document: doc,
             score: score,
             source: "semantic"
         });
     });
 
-    // Add BM25 results
     bm25Results.forEach(({ document, score }) => {
-        const existing = combinedResults.get(document.metadata.id);
+        const id = document.metadata.source || document.metadata.fileName || document.metadata.id;
+        const existing = combinedResults.get(id);
         if (existing) {
-            // If document exists, average the scores
             existing.score = (existing.score + score) / 2;
+            console.log(`  Combined result: ${id}, Final score: ${existing.score.toFixed(4)}`);
         } else {
-            combinedResults.set(document.metadata.id, {
+            combinedResults.set(id, {
                 document,
                 score,
                 source: "bm25"
@@ -105,10 +137,17 @@ export async function performHybridSearch(
         }
     });
 
-    // Convert to array and sort by score
-    return Array.from(combinedResults.values())
+    const finalResults = Array.from(combinedResults.values())
         .sort((a, b) => b.score - a.score)
         .slice(0, topK);
+
+    console.log(`Final combined results: ${finalResults.length}`);
+    finalResults.forEach((result, index) => {
+        console.log(`  Final ${index + 1}: Score ${result.score.toFixed(4)}, Source: ${result.source}, File: ${result.document.metadata.source || result.document.metadata.fileName}`);
+    });
+    console.log(`=== END HYBRID SEARCH DEBUG ===\n`);
+
+    return finalResults;
 }
 
 export function combineSearchResults(
@@ -145,25 +184,6 @@ export function combineSearchResults(
     });
 }
 
-export async function rerankWithCohere(results: HybridSearchResult[], query: string): Promise<Document[]> {
-    if (results.length === 0) return [];
-
-    try {
-        const documents = results.map(result => result.document);
-        const rerankedResults = await reranker.rerank(documents, query, {
-            topN: CONFIG.SEARCH.RERANK_TOP_K
-        });
-
-        // Map reranked results back to original documents and filter out any undefined
-        return rerankedResults
-            .map(result => documents[result.index])
-            .filter((doc): doc is Document => doc !== undefined);
-    } catch (error) {
-        console.error('Error in Cohere reranking:', error);
-        return results.slice(0, CONFIG.SEARCH.RERANK_TOP_K).map(result => result.document);
-    }
-}
-
 export async function verifyRelevance(chunks: Document[], query: string): Promise<boolean> {
     if (chunks.length === 0) return false;
 
@@ -171,7 +191,13 @@ export async function verifyRelevance(chunks: Document[], query: string): Promis
         chunk.pageContent.substring(0, 500)
     ).join('\n\n');
 
-    const prompt = `You are a strict relevance verification system. Your job is to determine if the provided context contains relevant information to answer the user's question.
+    console.log(`\n=== VERIFICATION LAYER DEBUG ===`);
+    console.log(`Query: "${query}"`);
+    console.log(`Number of chunks: ${chunks.length}`);
+    console.log(`Context preview (first 300 chars): "${context.substring(0, 300)}..."`);
+    console.log(`Chunk sources: ${chunks.map(c => c.metadata.source || c.metadata.fileName).join(', ')}`);
+
+    const prompt = `You are a relevance verification system. Your job is to determine if the provided context contains relevant information to answer the user's question.
   
   Context:
   ${context}
@@ -182,7 +208,10 @@ Evaluation criteria:
   - Does the context directly address the question?
   - Is there enough information to provide a meaningful answer?
   - Are the key concepts from the question present in the context?
-- Can a reasonable answer be constructed from this context?
+  - Can a reasonable answer be constructed from this context?
+  - For health-related queries, even indirect mentions of health topics should be considered relevant
+
+Be more lenient for conversational queries where partial information might still be useful.
 
 CRITICAL: You must respond with EXACTLY one word:
 - "YES" if the context is sufficiently relevant to answer the question
@@ -192,7 +221,10 @@ Response:`;
 
     try {
         const response = await llm.invoke(prompt);
-        return (response.content as string).trim().toUpperCase() === 'YES';
+        const result = (response.content as string).trim().toUpperCase() === 'YES';
+        console.log(`Verification result: ${result ? 'YES (RELEVANT)' : 'NO (NOT RELEVANT)'}`);
+        console.log(`=== END VERIFICATION DEBUG ===\n`);
+        return result;
     } catch (error) {
         console.error('Error in relevance verification:', error);
         return false;

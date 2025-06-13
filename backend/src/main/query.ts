@@ -3,13 +3,14 @@ import { generateResponse } from "./response";
 import { type RetrievalResult } from "../types";
 
 /**
- * Complete RAG Query Pipeline implementing the specified flow:
+ * RAG Query Pipeline flow:
  * 
  * RETRIEVAL: analyze question intent → Embedding → Hybrid Search 
  * (documents: whole vectorDB | transcripts: user-specific chunks) → 
  * rerank chunks → Verification Layer (boolean YES/NO) → 
  * send to LLM with user query to generate response
  */
+
 export async function processQuery(query: string, userId?: string): Promise<{
     answer: string;
     retrievalResult: RetrievalResult;
@@ -25,7 +26,6 @@ export async function processQuery(query: string, userId?: string): Promise<{
             processingSteps.push(`👤 User Context: ${userId}`);
         }
 
-        // Execute the complete retrieval flow
         processingSteps.push("🚀 Executing retrieval pipeline:");
         processingSteps.push("  Step 1: Analyze question intent");
         processingSteps.push("  Step 2: Embedding → Hybrid Search");
@@ -34,19 +34,17 @@ export async function processQuery(query: string, userId?: string): Promise<{
         processingSteps.push("  Step 5: Verification Layer (boolean YES/NO)");
         processingSteps.push("  Step 6: Generate response (if verified)");
 
-        const retrievalResult = await retrieveContext(query);
+        const retrievalResult = await retrieveContext(query, userId);
         
-        // Log retrieval success
-        if (retrievalResult.chunks.length > 0) {
-            processingSteps.push(`✅ Retrieval successful: ${retrievalResult.chunks.length} relevant chunks found`);
-            processingSteps.push(`📚 Sources: ${retrievalResult.sources.join(', ')}`);
+        if (retrievalResult.content) {
+            processingSteps.push(`✅ Retrieval successful: Content found`);
+            processingSteps.push(`📚 Sources: ${retrievalResult.sources.map(s => s.id).join(', ')}`);
             processingSteps.push(`🎯 Strategy: ${retrievalResult.searchStrategy}`);
             processingSteps.push(`📊 Confidence: ${(retrievalResult.confidence * 100).toFixed(1)}%`);
         } else {
             processingSteps.push("❌ No relevant content found after verification");
         }
 
-        // Generate response using LangChain
         processingSteps.push("🤖 Generating response with LLM...");
         const answer = await generateResponse(query, retrievalResult);
         processingSteps.push("✅ Response generated successfully");
@@ -64,53 +62,50 @@ export async function processQuery(query: string, userId?: string): Promise<{
         return {
             answer: "I apologize, but I encountered an error while processing your query. Please try again or rephrase your question.",
             retrievalResult: {
-                chunks: [],
+                content: '',
                 sources: [],
                 confidence: 0,
-                searchStrategy: 'error'
+                searchStrategy: 'failed'
             },
             processingSteps
         };
     }
 }
 
-/**
- * Simple query interface for basic usage
- */
-export async function askQuestion(question: string, userId?: string): Promise<string> {
-    const result = await processQuery(question, userId);
-    return result.answer;
-}
+// export async function askQuestion(question: string, userId?: string): Promise<string> {
+//     const result = await processQuery(question, userId);
+//     return result.answer;
+// }
 
 /**
  * Debug query interface that returns detailed processing information
  */
-export async function debugQuery(question: string, userId?: string): Promise<{
-    answer: string;
-    debug: {
-        retrievalResult: RetrievalResult;
-        processingSteps: string[];
-        metadata: {
-            totalChunks: number;
-            sources: string[];
-            confidence: number;
-            strategy: string;
-        };
-    };
-}> {
-    const result = await processQuery(question, userId);
+// export async function debugQuery(question: string, userId?: string): Promise<{
+//     answer: string;
+//     debug: {
+//         retrievalResult: RetrievalResult;
+//         processingSteps: string[];
+//         metadata: {
+//             hasContent: boolean;
+//             sources: string[];
+//             confidence: number;
+//             strategy: string;
+//         };
+//     };
+// }> {
+//     const result = await processQuery(question, userId);
     
-    return {
-        answer: result.answer,
-        debug: {
-            retrievalResult: result.retrievalResult,
-            processingSteps: result.processingSteps,
-            metadata: {
-                totalChunks: result.retrievalResult.chunks.length,
-                sources: result.retrievalResult.sources,
-                confidence: result.retrievalResult.confidence,
-                strategy: result.retrievalResult.searchStrategy
-            }
-        }
-    };
-}
+//     return {
+//         answer: result.answer,
+//         debug: {
+//             retrievalResult: result.retrievalResult,
+//             processingSteps: result.processingSteps,
+//             metadata: {
+//                 hasContent: Boolean(result.retrievalResult.content),
+//                 sources: result.retrievalResult.sources.map(s => s.id),
+//                 confidence: result.retrievalResult.confidence,
+//                 strategy: result.retrievalResult.searchStrategy
+//             }
+//         }
+//     };
+// }

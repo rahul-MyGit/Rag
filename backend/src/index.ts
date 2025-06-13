@@ -1,21 +1,39 @@
 import express, { type Request, type Response } from "express";
 import { processQuery } from "./main/query";    
 import { initializeRAGSystem } from "./config/initialize";
+import { ingestDocuments, ingestTranscripts } from './main/ingestion';
 
 const app = express();
 app.use(express.json());
 
-// Initialize RAG system on startup
-initializeRAGSystem().catch(console.error);
+async function initialize() {
+    try {
+        console.log('Initializing RAG system...');
+        await initializeRAGSystem();
+        
+        // console.log('Starting ingestion process...');
+        // await ingestDocuments();
+
+        // console.log('Starting transcript ingestion process...');
+        // await ingestTranscripts();
+        console.log('Ingestion process complete.');
+    } catch (error) {
+        console.error('Initialization failed:', error);
+        process.exit(1);
+    }
+}
+
+// Start initialization
+initialize();
 
 app.get("/", (_, res: Response) => {
     res.json({ message: "RAG System is running" });
 });
 
-interface QuestionRequest {
-    question: string;
-    clientId?: number; // 1 = nathan, 2 = robert
-}
+// interface QuestionRequest {
+//     question: string;
+//     clientId?: number; // 1 = nathan, 2 = robert
+// }
 
 app.post("/ask", async (req: Request, res: Response) => {
     try {
@@ -29,8 +47,8 @@ app.post("/ask", async (req: Request, res: Response) => {
         }
 
         // Map clientId to userId
-        const userId = clientId === 1 ? 'nathan' : 
-                      clientId === 2 ? 'robert' : 
+        const userId = clientId == 1 ? 'nathan' : 
+                      clientId == 2 ? 'robert' : 
                       undefined;
 
         const result = await processQuery(question, userId);

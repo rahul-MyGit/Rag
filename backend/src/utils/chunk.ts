@@ -8,109 +8,149 @@ import { type ChunkMetadata } from "../types";
 export async function createDocumentChunks(text: string, fileName: string): Promise<Document[]> {
     const config = CONFIG.CHUNKING.DOCUMENT;
 
-    // Parent splitter - larger chunks for documents
+    console.log(`Starting document chunking for ${fileName} (${text.length} characters)`);
+
     const parentSplitter = new RecursiveCharacterTextSplitter({
         chunkSize: config.PARENT_SIZE,
         chunkOverlap: config.PARENT_OVERLAP,
         separators: ['\n\n', '\n', '. ', '; ', ', ', ' ', '']
     });
 
-    // Child splitter - medium chunks for embedding
-    const childSplitter = new RecursiveCharacterTextSplitter({
-        chunkSize: config.CHILD_SIZE,
-        chunkOverlap: config.CHILD_OVERLAP,
-        separators: ['\n\n', '\n', '. ', ' ', '']
-    });
-
+    console.log(`Creating parent chunks for ${fileName}...`);
     const parentChunks = await parentSplitter.createDocuments([text]);
-    const documents: Document[] = [];
+    console.log(`Created ${parentChunks.length} parent chunks for ${fileName}`);
 
-    for (let i = 0; i < parentChunks.length; i++) {
+    const allDocuments: Document[] = [];
+
+    for (let parentIndex = 0; parentIndex < parentChunks.length; parentIndex++) {
+        const parentChunk = parentChunks[parentIndex];
+        const parentContent = parentChunk?.pageContent || '';
         const parentId = uuidv4();
-        const parentChunk = parentChunks[i];
 
-        // Generate summary and keywords for parent chunk
-        const summary = await generateSummary(parentChunk?.pageContent || '');
-        const keywords = extractKeywords(parentChunk?.pageContent || '');
+        console.log(`Processing parent chunk ${parentIndex + 1}/${parentChunks.length} for ${fileName} (${parentContent.length} chars)`);
 
-        // Create child chunks from parent chunk
-        const childChunks = await childSplitter.createDocuments([parentChunk?.pageContent || '']);
+        const midPoint = Math.floor(parentContent.length / 2);
+        const overlapSize = config.CHILD_OVERLAP;
+        
+        const childChunks = [
+            {
+                pageContent: parentContent.slice(0, midPoint + overlapSize),
+                metadata: {}
+            },
+            {
+                pageContent: parentContent.slice(midPoint - overlapSize),
+                metadata: {}
+            }
+        ];
 
-        for (let j = 0; j < childChunks.length; j++) {
-            const childChunk = childChunks[j];
+        console.log(`  Created exactly 2 child chunks from parent ${parentIndex + 1}`);
+        console.log(`    Child 1: ${childChunks[0]?.pageContent.length} chars`);
+        console.log(`    Child 2: ${childChunks[1]?.pageContent.length} chars`);
+
+        for (let childIndex = 0; childIndex < 2; childIndex++) {
+            const childChunk = childChunks[childIndex];
+            const childContent = childChunk?.pageContent || '';
+            
+            console.log(`    Processing child ${childIndex + 1}/2 of parent ${parentIndex + 1} (${childContent.length} chars)`);
+            
+            const childKeywords = extractKeywords(childContent);
+
             const metadata: ChunkMetadata = {
-                source: `${fileName}_parent_${i}_child_${j}`,
+                source: `${fileName}_parent_${parentIndex}_child_${childIndex}`,
                 type: 'document',
                 parentId,
-                chunkIndex: j,
+                chunkIndex: childIndex,
                 fileName,
-                summary,
-                keywords
+                summary: undefined,
+                keywords: await childKeywords,
+                originalContent: childContent
             };
 
-            documents.push(new Document({
-                pageContent: childChunk?.pageContent || '',
+            allDocuments.push(new Document({
+                pageContent: childContent,
                 metadata
             }));
         }
+
+        console.log(`  Completed parent chunk ${parentIndex + 1} → 2 child chunks, adding delay...`);
+        await new Promise(resolve => setTimeout(resolve, 1000));
     }
 
-    return documents;
+    console.log(`✅ Document chunking completed for ${fileName}:`);
+    console.log(`   📊 ${parentChunks.length} parent chunks → ${allDocuments.length} child chunks (2 per parent)`);
+    console.log(`   💾 Parent chunks stored in docstore, raw child content embedded in Pinecone`);
+    console.log(`   🚀 Benefits: Zero LLM costs, no information loss, faster processing`);
+    
+    return allDocuments;
 }
 
 export async function createTranscriptChunks(text: string, fileName: string, userId: string): Promise<Document[]> {
     const config = CONFIG.CHUNKING.TRANSCRIPT;
+    
+    console.log(`Processing transcript for ${userId}: ${text.length} characters`);
 
-    // For transcripts, use smaller chunks to preserve conversational context
-    const parentSplitter = new RecursiveCharacterTextSplitter({
-        chunkSize: config.PARENT_SIZE,
-        chunkOverlap: config.PARENT_OVERLAP,
-        separators: ['\n\n', '\n', '. ', '? ', '! ', ', ', ' ', '']
-    });
-
-    const childSplitter = new RecursiveCharacterTextSplitter({
-        chunkSize: config.CHILD_SIZE,
-        chunkOverlap: config.CHILD_OVERLAP,
-        separators: ['\n', '. ', '? ', '! ', ' ', '']
-    });
-
-    const parentChunks = await parentSplitter.createDocuments([text]);
-    const documents: Document[] = [];
-
-    for (let i = 0; i < parentChunks.length; i++) {
-        const parentId = uuidv4();
-        const parentChunk = parentChunks[i];
-
-        // Generate summary and keywords
-        const summary = await generateSummary(parentChunk?.pageContent || '');
-        const keywords = extractKeywords(parentChunk?.pageContent || '');
-
-        // Extract timestamp if present (format: name-month-day)
+    if (text.length < 1500) {
+        console.log(`Short transcript detected, embedding entire content`);
+        
         const timestampMatch = fileName.match(/(\d{2}-\d{2})/);
         const timestamp = timestampMatch ? timestampMatch[1] : undefined;
 
-        const childChunks = await childSplitter.createDocuments([parentChunk?.pageContent || '']);
+        const metadata: ChunkMetadata = {
+            source: `${fileName}_full`,
+            type: 'transcript',
+            userId,
+            parentId: undefined,
+            chunkIndex: 0,
+            fileName,
+            keywords: await extractKeywords(text),
+            timestamp,
+            originalContent: text
+        };
 
-        for (let j = 0; j < childChunks.length; j++) {
-            const childChunk = childChunks[j];
-            const metadata: ChunkMetadata = {
-                source: `${fileName}_parent_${i}_child_${j}`,
-                type: 'transcript',
-                userId,
-                parentId,
-                chunkIndex: j,
-                fileName,
-                summary,
-                keywords,
-                timestamp
-            };
-
-            documents.push(new Document({
-                pageContent: childChunk?.pageContent || '',
-                metadata
-            }));
-        }
+        return [new Document({
+            pageContent: text,
+            metadata
+        })];
     }
 
+    console.log(`Longer transcript detected, using simple chunking`);
+    
+    const splitter = new RecursiveCharacterTextSplitter({
+        chunkSize: config.CHILD_SIZE * 2,
+        chunkOverlap: config.CHILD_OVERLAP * 2,
+        separators: ['\n\n', '\n', '. ', '? ', '! ', ', ', ' ', '']
+    });
+
+    const chunks = await splitter.createDocuments([text]);
+    const documents: Document[] = [];
+
+    const timestampMatch = fileName.match(/(\d{2}-\d{2})/);
+    const timestamp = timestampMatch ? timestampMatch[1] : undefined;
+
+    for (let i = 0; i < chunks.length; i++) {
+        const chunk = chunks[i];
+        const chunkContent = chunk?.pageContent || '';
+        
+        console.log(`  Processing transcript chunk ${i + 1}/${chunks.length}`);
+
+        const metadata: ChunkMetadata = {
+            source: `${fileName}_chunk_${i}`,
+            type: 'transcript',
+            userId,
+            parentId: undefined,
+            chunkIndex: i,
+            fileName,
+            keywords: await extractKeywords(chunkContent),
+            timestamp,
+            originalContent: chunkContent
+        };
+
+        documents.push(new Document({
+            pageContent: chunkContent,
+            metadata
+        }));
+    }
+
+    console.log(`Created ${documents.length} simple transcript chunks for ${fileName}`);
     return documents;
 }

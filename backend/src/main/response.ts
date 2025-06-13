@@ -2,25 +2,16 @@ import { llm } from "../config/initialize";
 import { type RetrievalResult } from "../types";
 
 export async function generateResponse(query: string, retrievalResult: RetrievalResult): Promise<string> {
-    if (retrievalResult.chunks.length === 0) {
+    if (!retrievalResult.content) {
       return "I couldn't find relevant information to answer your question. Please try rephrasing your question or providing more specific details.";
     }
     
-    const context = retrievalResult.chunks.map((chunk, index) => {
-      const metadata = chunk.metadata;
-      const source = metadata.type === 'transcript' 
-        ? `[${index + 1}] From ${metadata.userId}'s conversation (${metadata.fileName})`
-        : `[${index + 1}] From document: ${metadata.fileName}`;
-      
-      return `${source}\n${chunk.pageContent}`;
-    }).join('\n\n');
-    
-    const sources = retrievalResult.sources.join(', ');
+    const sources = retrievalResult.sources.map(s => s.id).join(', ');
     
     const prompt = `You are a helpful assistant that answers questions based on provided context. Use the following context to answer the user's question comprehensively and accurately.
   
   Context:
-  ${context}
+  ${retrievalResult.content}
   
   Question: ${query}
   
@@ -47,4 +38,4 @@ export async function generateResponse(query: string, retrievalResult: Retrieval
       console.error('Error generating response:', error);
       return 'Sorry, I encountered an error while generating the response. Please try again.';
     }
-  }
+}
