@@ -14,6 +14,24 @@
     "typescript": "^5"
   },
   "dependencies": {
-    "express": "^5.1.0"
+    "@langchain/cohere": "^0.3.4",
+    "@langchain/community": "^0.3.46",
+    "@langchain/core": "^0.3.58",
+    "@langchain/openai": "^0.5.13",
+    "@langchain/pinecone": "^0.2.0",
+    "@pinecone-database/pinecone": "^6.1.0",
+    "@types/natural": "^6.0.1",
+    "@types/node": "^24.0.1",
+    "@types/pdf-parse": "^1.1.5",
+    "@types/stopword": "^2.0.3",
+    "@types/uuid": "^10.0.0",
+    "dotenv": "^16.5.0",
+    "express": "^5.1.0",
+    "langchain": "^0.3.28",
+    "natural": "^8.1.0",
+    "pdf-parse": "^1.1.1",
+    "stemmer": "^2.0.1",
+    "stopword": "^3.1.4",
+    "uuid": "^11.1.0"
   }
 }
