@@ -32,7 +32,7 @@ export function createQueryRouter(
         ]
     });
 
-    console.log('🎯 Created intelligent query router with 3 engines');
+    console.log('Created intelligent query router with 3 engines');
     return router;
 }
 

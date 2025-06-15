@@ -3,6 +3,7 @@ import cors from 'cors';
 import { initializeRAGSystem, agencyRouter } from './config/initialize';
 import { processQuery } from './main/query';
 import type { ChatRequest } from './types';
+import type { Request, Response } from 'express';
 
 const app = express();
 const PORT = 3001;
@@ -10,7 +11,7 @@ const PORT = 3001;
 app.use(cors());
 app.use(express.json());
 
-app.get('/health', (req, res) => {
+app.get('/health', (_, res: Response) => {
     res.json({ 
         status: 'healthy', 
         system: 'LlamaIndex RAG',
@@ -18,7 +19,7 @@ app.get('/health', (req, res) => {
     });
 });
 
-app.post('/ask', async (req, res) => {
+app.post('/ask', async (req: Request, res: Response) => {
     try {
         const request: ChatRequest = req.body;
         const { query, clientId } = request;
@@ -35,7 +36,23 @@ app.post('/ask', async (req, res) => {
 
         console.log(`🔍 Chat request - Query: "${query}", Client: ${clientId || 'general'}`);
 
+        res.writeHead(200, {
+            'Content-Type': 'text/plain; charset=utf-8',
+            'Transfer-Encoding': 'chunked',
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive'
+        });
+
         const result = await processQuery(request, agencyRouter);
+
+        const response = result.response;
+        const chunkSize = 10; // characters per chunk
+        
+        for (let i = 0; i < response.length; i += chunkSize) {
+            const chunk = response.slice(i, i + chunkSize);
+            res.write(chunk);
+            await new Promise(resolve => setTimeout(resolve, 50));
+        }
 
         const sources = result.sourceNodes ? result.sourceNodes.map(nodeWithScore => ({
             fileName: nodeWithScore.node.metadata?.fileName || nodeWithScore.node.metadata?.source || 'Unknown',
@@ -43,12 +60,9 @@ app.post('/ask', async (req, res) => {
             type: nodeWithScore.node.metadata?.type || 'document'
         })) : [];
 
-        res.json({
-            response: result.response,
-            sources,
-            clientId,
-            timestamp: new Date().toISOString()
-        });
+        res.write('\n\n---SOURCES---\n');
+        res.write(JSON.stringify({ sources, clientId, timestamp: new Date().toISOString() }));
+        res.end();
 
     } catch (error) {
         console.error('Chat endpoint error:', error);
@@ -61,11 +75,11 @@ app.post('/ask', async (req, res) => {
 
 async function startServer() {
     try {
-        console.log('🔧 Starting RAG system initialization...');
+        console.log('Starting RAG system initialization...');
         await initializeRAGSystem();
 
     } catch (error) {
-        console.error('❌ Failed to start server:', error);
+        console.error('Failed to start server:', error);
         process.exit(1);
     }
 }
@@ -73,5 +87,5 @@ async function startServer() {
 startServer();
         
 app.listen(PORT, () => {
-    console.log(`🚀 Server is running on port ${PORT}`);
+    console.log(`Server is running on port ${PORT}`);
 });

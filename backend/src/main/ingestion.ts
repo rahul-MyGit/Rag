@@ -1,6 +1,6 @@
 import { VectorStoreIndex, Document } from 'llamaindex';
 import { CONFIG } from '../config';
-import { pinecone } from '../config/initialize';
+// import { pinecone } from '../config/initialize';
 import { 
     loadDocumentsWithMetadata, 
     loadTranscriptsWithClientMetadata,
@@ -10,7 +10,7 @@ import path from 'path';
 import fs from 'fs';
 
 export async function buildDocumentIndex(): Promise<VectorStoreIndex | null> {
-    console.log('📚 Building document index...');
+    console.log('Building document index...');
 
     const docsPath = path.resolve(CONFIG.PATHS.DOCS_DIR);
     if (!fs.existsSync(docsPath)) {
@@ -30,12 +30,12 @@ export async function buildDocumentIndex(): Promise<VectorStoreIndex | null> {
 
     const documentIndex = await VectorStoreIndex.fromDocuments(documents);
 
-    console.log(`✅ Built document index with ${documents.length} documents`);
+    console.log(`Built document index with ${documents.length} documents`);
     return documentIndex;
 }
 
 export async function buildTranscriptIndex(): Promise<VectorStoreIndex | null> {
-    console.log('📝 Building transcript index...');
+    console.log('Building transcript index...');
 
     const transcriptsPath = path.resolve(CONFIG.PATHS.TRANSCRIPTS_DIR);
     if (!fs.existsSync(transcriptsPath)) {
@@ -52,6 +52,6 @@ export async function buildTranscriptIndex(): Promise<VectorStoreIndex | null> {
 
     const transcriptIndex = await VectorStoreIndex.fromDocuments(transcriptDocs);
 
-    console.log(`✅ Built transcript index with ${transcriptDocs.length} transcripts`);
+    console.log(`Built transcript index with ${transcriptDocs.length} transcripts`);
     return transcriptIndex;
 }

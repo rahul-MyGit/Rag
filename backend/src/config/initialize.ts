@@ -12,13 +12,13 @@ export let agencyRouter: RouterQueryEngine;
 
 export async function initializeRAGSystem(): Promise<void> {
     try {
-        console.log('🚀 Initializing LlamaIndex RAG system...');
+        console.log('Initializing LlamaIndex RAG system...');
 
         await initializeClients();
         
         await initializePineconeIndexes();
 
-        console.log('📚 Building document and transcript indexes...');
+        console.log('Building document and transcript indexes...');
         const [documentIndex, transcriptIndex] = await Promise.all([
             buildDocumentIndex(),
             buildTranscriptIndex()
@@ -30,11 +30,11 @@ export async function initializeRAGSystem(): Promise<void> {
 
         agencyRouter = createQueryRouter(documentIndex, transcriptIndex);
         
-        console.log('✅ LlamaIndex RAG system initialized successfully');
-        console.log('📊 System ready for queries');
+        console.log('LlamaIndex RAG system initialized successfully');
+        console.log('System ready for queries');
         
     } catch (error) {
-        console.error('❌ Error initializing RAG system:', error);
+        console.error('Error initializing RAG system:', error);
         throw error;
     }
 }
@@ -67,12 +67,12 @@ async function initializeClients(): Promise<void> {
 async function testConnections(): Promise<void> {
     try {
         await pinecone.listIndexes();
-        console.log('✅ Pinecone connection verified');
+        console.log('Pinecone connection verified');
 
-        console.log('✅ OpenAI connection configured');
+        console.log('OpenAI connection configured');
         
     } catch (error) {
-        console.error('❌ Connection test failed:', error);
+        console.error('Connection test failed:', error);
         throw error;
     }
 }
@@ -92,7 +92,7 @@ async function initializePineconeIndexes(): Promise<void> {
                 }
             }
         });
-        console.log(`✅ Created Pinecone index: ${CONFIG.PINECONE.DOC_INDEX_NAME}`);
+        console.log(`Created Pinecone index: ${CONFIG.PINECONE.DOC_INDEX_NAME}`);
     }
 
     if (!existingIndexes.indexes?.find(idx => idx.name === CONFIG.PINECONE.TRANSCRIPT_INDEX_NAME)) {
@@ -107,6 +107,6 @@ async function initializePineconeIndexes(): Promise<void> {
                 }
             }
         });
-        console.log(`✅ Created Pinecone index: ${CONFIG.PINECONE.TRANSCRIPT_INDEX_NAME}`);
+        console.log(`Created Pinecone index: ${CONFIG.PINECONE.TRANSCRIPT_INDEX_NAME}`);
     }
 }
