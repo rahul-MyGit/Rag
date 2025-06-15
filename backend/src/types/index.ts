@@ -1,57 +1,29 @@
-import { Document } from 'langchain/document';
+// LlamaIndex-compatible types
+import type { NodeWithScore } from 'llamaindex';
 
-export interface ChunkMetadata {
+export interface AgencyMetadata {
     source: string;
     type: 'document' | 'transcript';
     userId?: string;
     clientId?: number; // 1 = nathan, 2 = robert
-    parentId?: string;
-    chunkIndex: number;
-    pageNumber?: number;
     fileName: string;
-    summary?: string;
-    keywords?: string[];
-    timestamp?: string;
-    createdAt?: string;
-    originalContent?: string;
+    date?: string; // extracted from filename format: {name}-{month}-{day}
+    filePath?: string;
+    pageNumber?: number;
 }
 
-export interface BM25Result {
-    document: Document;
+export interface ChatRequest {
+    query: string;
+    clientId?: number; // 1 = nathan, 2 = robert
+}
+
+export interface SourceInfo {
+    fileName: string;
     score: number;
+    type: string;
 }
 
-export interface QueryIntent {
-    needsDocuments: boolean;
-    needsTranscripts: boolean;
-    confidence: number;
-    queryType: 'document' | 'transcript' | 'document_then_transcript' | 'transcript_then_document' | 'mixed';
+export interface QueryResult {
+    response: string;
+    sourceNodes?: NodeWithScore[];
 }
-
-export interface RetrievalResult {
-    content: string;
-    confidence: number;
-    sources: Array<{
-        type: string;
-        id: string;
-        score: number;
-    }>;
-    searchStrategy: 'semantic' | 'bm25' | 'hybrid' | 'failed' | 'max-attempts-non-relevant' | 'max-attempts-reached';
-}
-
-export interface HybridSearchResult {
-    document: Document;
-    semanticScore: number;
-    bm25Score: number;
-    combinedScore: number;
-}
-
-// export interface PineconeMatch {
-//     id: string;
-//     score: number;
-//     metadata?: {
-//         text?: string;
-//         type?: string;
-//         id?: string;
-//     };
-// }

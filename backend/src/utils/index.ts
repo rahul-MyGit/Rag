@@ -1,161 +1,120 @@
-import { llm } from "../config/initialize";
-import fs from 'fs';
-// import * as natural from 'natural';
-import { removeStopwords } from 'stopword';
-import { stemmer } from 'stemmer';
+import { Document } from 'llamaindex';
+import { PDFReader } from '@llamaindex/readers/pdf';
+import { SimpleDirectoryReader } from '@llamaindex/readers/directory';
+import { TextFileReader } from '@llamaindex/readers/text';
+import { MarkdownReader } from '@llamaindex/readers/markdown';
+import type { AgencyMetadata } from '../types';
 import path from 'path';
-import { PDFLoader } from "@langchain/community/document_loaders/fs/pdf";
-import { RecursiveCharacterTextSplitter } from "langchain/text_splitter";
+import fs from 'fs';
 
-type PageData = {
-    content: string;
-    pageNumber: number;
-    metadata: Record<string, any>;
-};
+/**
+ * Extract metadata from transcript filename
+ * Format: {name}-{month}-{day}.pdf
+ */
+export function extractTranscriptMetadata(filePath: string, clientId: 1 | 2): AgencyMetadata {
+    const fileName = path.basename(filePath);
+    const dateMatch = fileName.match(/(\w+)-(\d{2})-(\d{2})\.pdf/);
+    const userId = clientId === 1 ? 'nathan' : 'robert';
+    
+    return {
+        source: fileName,
+        type: 'transcript',
+        userId,
+        clientId,
+        fileName,
+        date: dateMatch ? `${dateMatch[2]}-${dateMatch[3]}` : undefined,
+        filePath
+    };
+}
 
-export async function parsePDF(filePath: string, splitPages: true): Promise<PageData[]>;
-export async function parsePDF(filePath: string, splitPages: false): Promise<string>;
-export async function parsePDF(filePath: string, splitPages?: boolean): Promise<string | PageData[]>;
-export async function parsePDF(filePath: string, splitPages: boolean = false): Promise<string | PageData[]> {
+/**
+ * Extract metadata from document filename
+ */
+export function extractDocumentMetadata(filePath: string): AgencyMetadata {
+    const fileName = path.basename(filePath);
+    
+    return {
+        source: fileName,
+        type: 'document',
+        fileName,
+        filePath
+    };
+}
+
+/**
+ * Load documents from directory with metadata using LlamaIndex readers
+ */
+export async function loadDocumentsWithMetadata(
+    directoryPath: string,
+    metadataExtractor: (filePath: string) => AgencyMetadata
+): Promise<Document[]> {
+    if (!fs.existsSync(directoryPath)) {
+        console.warn(`Directory does not exist: ${directoryPath}`);
+        return [];
+    }
+
     try {
-        const absolutePath = path.resolve(filePath);
-        
-        if (!fs.existsSync(absolutePath)) {
-            throw new Error(`PDF file not found: ${absolutePath}`);
-        }
-
-        console.log(`Reading PDF from: ${absolutePath}`);
-        
-        const loader = new PDFLoader(absolutePath, {
-            splitPages: splitPages,
-            parsedItemSeparator: " " 
+        // Use SimpleDirectoryReader with proper file type readers
+        const reader = new SimpleDirectoryReader();
+        const documents = await reader.loadData({
+            directoryPath,
+            fileExtToReader: {
+                pdf: new PDFReader(),
+                txt: new TextFileReader(),
+                md: new MarkdownReader()
+            }
         });
-        
-        const docs = await loader.load();
-        console.log(`Extracted ${docs.length} ${splitPages ? 'pages' : 'document(s)'} from PDF`);
-        
-        if (!docs || docs.length === 0) {
-            throw new Error('No content extracted from PDF');
-        }
 
-        if (splitPages) {
-            const pages: PageData[] = docs.map((doc, index) => ({
-                content: doc.pageContent,
-                pageNumber: index + 1,
-                metadata: doc.metadata
-            }));
-            console.log(`Successfully extracted ${pages.length} pages from PDF`);
-            return pages;
-        } else {
-            const text = docs.map(doc => doc.pageContent).join('\n\n');
+        // Apply custom metadata to each document
+        const documentsWithMetadata = documents.map(doc => {
+            const filePath = doc.metadata.file_path;
+            const customMetadata = metadataExtractor(filePath);
             
-            if (!text || text.trim().length === 0) {
-                console.warn(`No text content found in PDF: ${absolutePath}`);
-                return '';
-            }
-            
-            console.log(`Successfully extracted ${text.length} characters from PDF`);
-            return text;
-        }
-        
+            return new Document({
+                text: doc.getText(),
+                metadata: {
+                    ...doc.metadata,
+                    ...customMetadata
+                }
+            });
+        });
+
+        console.log(`📚 Loaded ${documentsWithMetadata.length} documents from ${directoryPath}`);
+        return documentsWithMetadata;
+
     } catch (error) {
-        console.error(`Error parsing PDF ${filePath}:`, error);
-        throw new Error(`Failed to parse PDF: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        console.error(`Failed to load documents from ${directoryPath}:`, error);
+        return [];
     }
 }
 
-export async function generateSummary(text: string): Promise<string> {
-    try {
-        const maxChunkSize = 4000;
-        const chunks = [];
-        
-        for (let i = 0; i < text.length; i += maxChunkSize) {
-            chunks.push(text.slice(i, i + maxChunkSize));
-        }
-
-        const summaries = [];
-        for (const chunk of chunks) {
-            const prompt = `Provide a concise summary of the following text in 2-3 sentences, focusing on key topics and main points:
-  
-  ${chunk}
-  
-  Summary:`;
-
-            try {
-                const response = await llm.invoke(prompt);
-                summaries.push(response.content as string);
-                await new Promise(resolve => setTimeout(resolve, 1000));
-            } catch (error) {
-                console.warn('Error processing chunk:', error);
-                summaries.push(`Section containing ${chunk.length} characters with key information.`);
-            }
-        }
-
-        if (summaries.length === 1) {
-            return summaries[0] || 'No summary available';
-        }
-
-        const finalPrompt = `Combine these summaries into one concise summary (2-3 sentences):
-  
-  ${summaries.join('\n\n')}
-  
-  Final Summary:`;
-
-        try {
-            const response = await llm.invoke(finalPrompt);
-            return response.content as string;
-        } catch (error) {
-            console.warn('Error creating final summary:', error);
-            return summaries.join(' ');
-        }
-    } catch (error) {
-        console.error('Error generating summary:', error);
-        return `Document containing ${text.length} characters with key information about the topic.`;
+/**
+ * Load transcripts from nested directory structure
+ */
+export async function loadTranscriptsWithClientMetadata(transcriptsPath: string): Promise<Document[]> {
+    const allDocs: Document[] = [];
+    
+    // Load Nathan's transcripts
+    const nathanPath = path.join(transcriptsPath, 'nathan');
+    if (fs.existsSync(nathanPath)) {
+        const nathanDocs = await loadDocumentsWithMetadata(
+            nathanPath,
+            (filePath) => extractTranscriptMetadata(filePath, 1)
+        );
+        allDocs.push(...nathanDocs);
+        console.log(`📝 Loaded ${nathanDocs.length} Nathan transcripts`);
     }
-}
 
-export async function extractKeywords(text: string): Promise<string[]> {
-    try {
-        const maxChunkSize = 4000;
-        const chunks = [];
-        
-        for (let i = 0; i < text.length; i += maxChunkSize) {
-            chunks.push(text.slice(i, i + maxChunkSize));
-        }
-
-        const allKeywords = new Set<string>();
-        
-        for (const chunk of chunks) {
-            try {
-                const splitter = new RecursiveCharacterTextSplitter({
-                    chunkSize: 1000,
-                    chunkOverlap: 200,
-                });
-                
-                const subChunks = await splitter.splitText(chunk);
-                
-                const words = subChunks
-                    .join(' ')
-                    .toLowerCase()
-                    .split(/\s+/)
-                    .filter((word: string) => word.length > 2);
-                    
-                const filteredWords = removeStopwords(words);
-                
-                const stemmedWords = filteredWords.map(word => stemmer(word));
-                
-                stemmedWords.forEach(word => allKeywords.add(word));
-                
-                await new Promise(resolve => setTimeout(resolve, 500));
-            } catch (error) {
-                console.warn('Error processing chunk for keywords:', error);
-            }
-        }
-        
-        const keywords = Array.from(allKeywords);
-        return keywords.slice(0, 10);
-    } catch (error) {
-        console.error('Error extracting keywords:', error);
-        return ['document', 'information', 'content'];
+    // Load Robert's transcripts
+    const robertPath = path.join(transcriptsPath, 'robert');
+    if (fs.existsSync(robertPath)) {
+        const robertDocs = await loadDocumentsWithMetadata(
+            robertPath,
+            (filePath) => extractTranscriptMetadata(filePath, 2)
+        );
+        allDocs.push(...robertDocs);
+        console.log(`📝 Loaded ${robertDocs.length} Robert transcripts`);
     }
+
+    return allDocs;
 }
