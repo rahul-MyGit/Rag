@@ -11,29 +11,25 @@ interface SearchResult {
 }
 
 export async function analyzeQueryIntent(query: string): Promise<QueryIntent> {
-    const prompt = `Analyze the following query and determine if it needs document or transcript information or both.
+    const prompt = `Classify this criminal probation query for search routing:
+
 Query: "${query}"
 
-Consider the following guidelines:
-- If query is about policy, guidelines, rules, compliance, or violations - it needs BOTH documents and transcripts (queryType: "mixed")
-- If query is about specific conversations, interactions, or "what did I say" - it needs transcripts (queryType: "transcript")
-- If query is about general information, documentation, or procedures - it needs documents (queryType: "document")
-- If query combines conversation content with policy/guidelines - it needs both (queryType: "mixed")
+Types:
+- "document": Policy/procedure definitions ("What is X principle?")
+- "transcript": Client behavior/statements only ("What did client say?")  
+- "document_then_transcript": Apply policy in meeting ("Did staff use X principle in meeting?")
+- "transcript_then_document": Find policy for situation ("What intervention for client who...")
+- "mixed": General/comparison queries
 
-Examples:
-- "Did I say anything against policy on call?" → needs both documents (policy info) and transcripts (conversation content) → "mixed"
-- "What medication did I suggest?" → needs transcripts only → "transcript"
-- "What is the company policy on..." → needs documents only → "document"
+Decision rules:
+- "Did [staff] use/apply [specific policy] in meeting?" → document_then_transcript
+- "What [policy] for [client situation]?" → transcript_then_document
+- Only client behavior → transcript
+- Only policy definition → document
+- Else → mixed
 
-Respond with a JSON object in this exact format:
-{
-    "needsDocuments": boolean,
-    "needsTranscripts": boolean,
-    "confidence": number between 0 and 1,
-    "queryType": "document" | "transcript" | "mixed"
-}
-
-Respond only with valid JSON:`;
+JSON: {"needsDocuments":bool,"needsTranscripts":bool,"confidence":0-1,"queryType":"..."}`;
 
     try {
         const response = await llm.invoke(prompt);
@@ -53,12 +49,12 @@ Respond only with valid JSON:`;
 
 export async function performHybridSearch(
     query: string,
-    userId: number,
+    userId?: number,
     type: 'documents' | 'transcripts' = 'transcripts',
     topK: number = 10
 ): Promise<SearchResult[]> {
     const vectorStore = type === 'documents' ? docVectorStore : transcriptVectorStore;
-    
+
     if (!vectorStore) {
         throw new Error(`${type} vector store not initialized`);
     }
@@ -67,18 +63,22 @@ export async function performHybridSearch(
     console.log(`Query: "${query}"`);
     console.log(`Type: ${type}, UserId: ${userId}, TopK: ${topK}`);
 
+    // OPTIMIZATION: Reduce pre-filtering overhead by doing direct searches instead of pre-fetching all docs
     let clientFilter: Record<string, any> = {};
     let clientDocs: Document[] = [];
 
     if (type === 'transcripts') {
         clientFilter = { clientId: userId };
-        clientDocs = await vectorStore.similaritySearch("", 1000, clientFilter);
+        // Still need docs for BM25, but use smaller sample for speed
+        clientDocs = await vectorStore.similaritySearch("", Math.min(topK * 10, 500), clientFilter);
         console.log(`Pre-filtered TRANSCRIPT documents for user ${userId}: ${clientDocs.length}`);
     } else {
-        clientDocs = await vectorStore.similaritySearch("", 1000);
+        // For documents: get smaller sample for BM25 efficiency
+        clientDocs = await vectorStore.similaritySearch("", Math.min(topK * 10, 500));
         console.log(`Pre-filtered DOCUMENT documents (global): ${clientDocs.length}`);
     }
 
+    // OPTIMIZATION: Direct filtered semantic search instead of getting all then filtering
     let semanticResults: [Document, number][];
     if (type === 'transcripts') {
         semanticResults = await vectorStore.similaritySearchWithScore(
@@ -99,6 +99,7 @@ export async function performHybridSearch(
         console.log(`    Content preview: "${doc.pageContent.substring(0, 150)}..."`);
     });
 
+    // BM25 search on pre-filtered docs (now smaller set for speed)
     const bm25Results = await searchBM25(
         query,
         type,
@@ -156,7 +157,7 @@ export function combineSearchResults(
     type: string
 ): HybridSearchResult[] {
     const semanticMap = new Map(semanticResults.map(([doc, score]) => [
-        doc.metadata.source, 
+        doc.metadata.source,
         score / Math.max(...semanticResults.map(([, s]) => s))
     ]));
 
@@ -171,15 +172,15 @@ export function combineSearchResults(
     ])).map(source => {
         const semanticScore = semanticMap.get(source) || 0;
         const bm25Score = bm25Map.get(source) || 0;
-        const document = semanticResults.find(([doc]) => doc.metadata.source === source)?.[0] 
+        const document = semanticResults.find(([doc]) => doc.metadata.source === source)?.[0]
             || bm25Results.find(result => result.document.metadata.source === source)!.document;
 
         return {
             document,
             semanticScore,
             bm25Score,
-            combinedScore: (semanticScore * CONFIG.SEARCH.SEMANTIC_WEIGHT) + 
-                          (bm25Score * CONFIG.SEARCH.BM25_WEIGHT)
+            combinedScore: (semanticScore * CONFIG.SEARCH.SEMANTIC_WEIGHT) +
+                (bm25Score * CONFIG.SEARCH.BM25_WEIGHT)
         };
     });
 }

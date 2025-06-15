@@ -25,7 +25,7 @@ export interface QueryIntent {
     needsDocuments: boolean;
     needsTranscripts: boolean;
     confidence: number;
-    queryType: 'document' | 'transcript' | 'mixed';
+    queryType: 'document' | 'transcript' | 'document_then_transcript' | 'transcript_then_document' | 'mixed';
 }
 
 export interface RetrievalResult {

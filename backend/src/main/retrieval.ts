@@ -1,11 +1,18 @@
 import { Document } from "langchain/document";
-import { analyzeQueryIntent, performHybridSearch, verifyRelevance, reformulateQuery } from "../search";
+import { analyzeQueryIntent, performHybridSearch, reformulateQuery } from "../search";
 import { type RetrievalResult, type HybridSearchResult } from "../types";
 import { docRetriever, embeddings } from "../config/initialize";
 import { ChatOpenAI } from "@langchain/openai";
 
+// Optimized model for verification - using GPT-4o-mini for speed + accuracy
+const verificationModel = new ChatOpenAI({
+    modelName: "gpt-4o-mini",
+    temperature: 0.1, // Lower temperature for more consistent verification
+});
+
+// Main model for final answer generation - using GPT-4o-mini for speed + quality
 const chatModel = new ChatOpenAI({
-    modelName: "gpt-3.5-turbo",
+    modelName: "gpt-4o-mini",
     temperature: 0.7,
 });
 
@@ -52,11 +59,13 @@ export async function retrieveContext(query: string, userId?: string, maxAttempt
         }
 
         try {
-            const intent = await analyzeQueryIntent(currentQuery);
+            // Step 1: Analyze intent and embed query in parallel
+            const [intent, queryEmbedding] = await Promise.all([
+                analyzeQueryIntent(currentQuery),
+                embeddings.embedQuery(currentQuery)
+            ]);
+            
             console.log('Step 1 - Intent analysis:', intent);
-
-            console.log('Step 2 - Embedding query...');
-            const queryEmbedding = await embeddings.embedQuery(currentQuery);
             console.log(`Step 2 - Query embedded successfully (${queryEmbedding.length} dimensions)`);
             if (attempts > 1) {
                 console.log(`✅ Reformulated query has been re-embedded for fresh search`);
@@ -67,6 +76,7 @@ export async function retrieveContext(query: string, userId?: string, maxAttempt
                     0; // Default to 0 for no specific user
 
             console.log(`Step 3 - Using clientId: ${clientId} for user: ${userId || 'none'}`);
+
 
             let searchResults: any[] = [];
 
@@ -82,12 +92,111 @@ export async function retrieveContext(query: string, userId?: string, maxAttempt
                     };
                 }
                 searchResults = await performHybridSearch(currentQuery, clientId, 'transcripts');
-            } else {
+            } else if (intent.queryType === 'document_then_transcript') {
+                console.log('🔄 Initiating DOCUMENT-FIRST cross-reference retrieval...');
+                
+                // Step 1: Search documents to understand the policy/principle/intervention
+                console.log('Step 1: Searching documents for policy/principle definition...');
                 const docResults = await performHybridSearch(currentQuery, 0, 'documents');
-                const transcriptResults = userId ?
-                    await performHybridSearch(currentQuery, clientId, 'transcripts') :
-                    [];
-                searchResults = [...docResults, ...transcriptResults];
+                
+                if (docResults.length > 0 && userId) {
+                    // Step 2: Extract key concepts from document results to enhance transcript search
+                    const policyContext = docResults.slice(0, 3).map(r => r.document.pageContent).join(' ');
+                    console.log(`📋 Policy context extracted (${policyContext.length} chars)`);
+                    
+                    // Step 3: Search transcripts for evidence of policy application
+                    console.log('Step 2: Searching transcripts for evidence of policy application...');
+                    const enhancedTranscriptQuery = `${currentQuery} evidence of: ${policyContext.substring(0, 500)}`;
+                    const transcriptResults = await performHybridSearch(enhancedTranscriptQuery, clientId, 'transcripts');
+                    
+                    // Combine results: documents first (for context), then transcript evidence
+                    searchResults = [...docResults.slice(0, 2), ...transcriptResults];
+                    console.log(`✅ Document-first cross-reference complete: ${docResults.length} policy docs + ${transcriptResults.length} transcript evidence`);
+                } else {
+                    // Fallback to document-only if no user context or no document results
+                    console.log('❌ No policy context found or no user specified, using document results only');
+                    searchResults = docResults;
+                }
+            } else if (intent.queryType === 'transcript_then_document') {
+                console.log('🔄 Initiating TRANSCRIPT-FIRST cross-reference retrieval...');
+                
+                if (!userId) {
+                    return {
+                        content: '',
+                        confidence: 0,
+                        sources: [],
+                        searchStrategy: 'failed'
+                    };
+                }
+                
+                // Step 1: Search transcripts to understand client situation/context
+                console.log('Step 1: Searching transcripts for client context...');
+                const transcriptResults = await performHybridSearch(currentQuery, clientId, 'transcripts');
+                
+                if (transcriptResults.length > 0) {
+                    // Step 2: Extract client context to enhance document search
+                    const clientContext = transcriptResults.slice(0, 3).map(r => r.document.pageContent).join(' ');
+                    console.log(`📋 Client context extracted (${clientContext.length} chars)`);
+                    
+                    // Step 3: Search documents for relevant policies/interventions
+                    console.log('Step 2: Searching documents for relevant policies/interventions...');
+                    const enhancedDocQuery = `${currentQuery} for client situation: ${clientContext.substring(0, 500)}`;
+                    const docResults = await performHybridSearch(enhancedDocQuery, 0, 'documents');
+                    
+                    // Combine results: transcript context first, then relevant policies
+                    searchResults = [...transcriptResults.slice(0, 2), ...docResults];
+                    console.log(`✅ Transcript-first cross-reference complete: ${transcriptResults.length} client context + ${docResults.length} policy recommendations`);
+                } else {
+                    console.log('❌ No client context found, cannot perform cross-reference');
+                    return {
+                        content: '',
+                        confidence: 0,
+                        sources: [],
+                        searchStrategy: 'failed'
+                    };
+                }
+            } else {
+                // Cross-index retrieval: First get user context, then search documents
+                if (userId && (currentQuery.toLowerCase().includes('recommend') || 
+                               currentQuery.toLowerCase().includes('suggest') || 
+                               currentQuery.toLowerCase().includes('program'))) {
+                    console.log('🔄 Initiating cross-index retrieval...');
+                    
+                    // Step 1: Get user context from transcripts
+                    console.log('Step 1: Retrieving user context from transcripts...');
+                    const userContextQuery = `${userId} client background needs goals progress treatment status situation`;
+                    const userContextResults = await performHybridSearch(userContextQuery, clientId, 'transcripts');
+                    
+                    if (userContextResults.length > 0) {
+                        // Extract user context for enhanced document search
+                        const userContext = userContextResults.slice(0, 3).map(r => r.document.pageContent).join(' ');
+                        console.log(`📋 User context extracted (${userContext.length} chars)`);
+                        
+                        // Step 2: Use user context to enhance document search
+                        console.log('Step 2: Searching documents with user context...');
+                        const enhancedQuery = `${currentQuery} for client with: ${userContext.substring(0, 500)}`;
+                        const docResults = await performHybridSearch(enhancedQuery, 0, 'documents');
+                        
+                        // Combine results with user context first (for context) and relevant docs
+                        searchResults = [...userContextResults.slice(0, 2), ...docResults];
+                        console.log(`✅ Cross-index retrieval complete: ${userContextResults.length} user context + ${docResults.length} document results`);
+                    } else {
+                        // Fallback to regular mixed search
+                        console.log('❌ No user context found, falling back to standard search');
+                        const [docResults, transcriptResults] = await Promise.all([
+                            performHybridSearch(currentQuery, 0, 'documents'),
+                            performHybridSearch(currentQuery, clientId, 'transcripts')
+                        ]);
+                        searchResults = [...docResults, ...transcriptResults];
+                    }
+                } else {
+                    // Regular mixed search for non-recommendation queries
+                    const [docResults, transcriptResults] = await Promise.all([
+                        performHybridSearch(currentQuery, 0, 'documents'),
+                        userId ? performHybridSearch(currentQuery, clientId, 'transcripts') : Promise.resolve([])
+                    ]);
+                    searchResults = [...docResults, ...transcriptResults];
+                }
             }
 
             const hybridResults: HybridSearchResult[] = searchResults.map(result => ({
@@ -142,8 +251,47 @@ export async function retrieveContext(query: string, userId?: string, maxAttempt
 
             console.log(`Step 6 - Retrieved ${finalChunks.length} final chunks with context`);
 
-            const isRelevant = await verifyRelevance(finalChunks, currentQuery);
+            const isRelevant = await verifyRelevanceOptimized(finalChunks, currentQuery);
             console.log(`Step 7 - Verification Layer: ${isRelevant ? 'YES (RELEVANT)' : 'NO (NOT RELEVANT)'}`);
+
+            if (isRelevant) {
+                console.log('✅ Verification passed - proceeding to answer generation');
+                
+                const sources = [...new Set(finalChunks.map(chunk => chunk.metadata.fileName))];
+                console.log('Step 8 - Generating precise answer with verified relevant context');
+
+                const contextText = finalChunks.map(chunk => chunk.pageContent).join('\n\n');
+
+                const prompt = `You are an expert RAG assistant specializing in personalized recommendations. The context below contains VERIFIED RELEVANT information including client background and relevant guidance documents.
+
+Context:
+${contextText}
+
+User Question: ${currentQuery}
+
+CRITICAL INSTRUCTIONS: 
+1. Answer the question based on the context provided only.
+2. Don't add any extra line in starting or ending of the answer.
+3 ans should be very specific and to the point.
+
+Answer:`;
+
+                const response = await chatModel.invoke(prompt);
+                const generatedAnswer = typeof response.content === 'string'
+                    ? response.content
+                    : JSON.stringify(response.content);
+
+                return {
+                    content: generatedAnswer,
+                    sources: sources.map(source => ({
+                        type: 'document',
+                        id: source,
+                        score: 1.0
+                    })),
+                    confidence: intent.confidence,
+                    searchStrategy: 'hybrid'
+                };
+            }
 
             if (!isRelevant && attempts < maxAttempts) {
                 console.log('❌ LLM Verification: Content NOT relevant to query');
@@ -164,44 +312,6 @@ export async function retrieveContext(query: string, userId?: string, maxAttempt
                 };
             }
 
-            const sources = [...new Set(finalChunks.map(chunk => chunk.metadata.fileName))];
-            console.log('Step 8 - Generating precise answer with verified relevant context');
-
-            const contextText = finalChunks.map(chunk => chunk.pageContent).join('\n\n');
-
-            const prompt = `You are a top-tier precise assistant. Based on the provided context, answer the user's question accurately and concisely only from context.
-
-Context:
-${contextText}
-
-User Question: ${currentQuery}
-
-Instructions:
-- Provide a direct and precise answer based only on the information in the context
-- If the context doesn't contain enough information to fully answer the question, clearly state what information is missing
-- Use specific details and examples from the context when relevant
-- If information comes from transcripts, you can mention the speaker when relevant
-- Be concise
-- Maintain a professional and helpful tone
-
-Answer:`;
-
-            const response = await chatModel.invoke(prompt);
-            const generatedAnswer = typeof response.content === 'string'
-                ? response.content
-                : JSON.stringify(response.content);
-
-            return {
-                content: generatedAnswer,
-                sources: sources.map(source => ({
-                    type: 'document',
-                    id: source,
-                    score: 1.0
-                })),
-                confidence: intent.confidence,
-                searchStrategy: 'hybrid'
-            };
-
         } catch (error) {
             console.error(`Error in retrieval attempt ${attempts}:`, error);
             if (attempts === maxAttempts) {
@@ -218,6 +328,48 @@ Answer:`;
     };
 }
 
+async function verifyRelevanceOptimized(chunks: Document[], query: string): Promise<boolean> {
+    if (chunks.length === 0) return false;
+    
+    const context = chunks.map(chunk => chunk.pageContent).slice(0, 3).join('\n\n'); // Only check first 3 chunks for speed
+    const sources = chunks.map(chunk => chunk.metadata.source || chunk.metadata.fileName).join(', ');
+    
+    console.log(`\n=== VERIFICATION LAYER DEBUG ===`);
+    console.log(`Query: "${query}"`);
+    console.log(`Number of chunks: ${chunks.length}`);
+    console.log(`Context preview (first 300 chars): "${context.substring(0, 300)}..."`);
+    console.log(`Chunk sources: ${sources}`);
+
+    const verificationPrompt = `Analyze if the provided context is relevant to answer the user's question.
+
+User Question: "${query}"
+
+Context:
+${context}
+
+Instructions:
+- Return ONLY "YES" if the context contains information that can help answer the question
+- Return ONLY "NO" if the context is completely unrelated to the question
+- Consider partial relevance as YES
+
+Response (YES or NO only):`;
+
+    try {
+        const response = await verificationModel.invoke(verificationPrompt);
+        const result = (response.content as string).trim().toUpperCase();
+        const isRelevant = result.includes('YES');
+        
+        console.log(`Verification result: ${isRelevant ? 'YES (RELEVANT)' : 'NO (NOT RELEVANT)'}`);
+        console.log(`=== END VERIFICATION DEBUG ===\n`);
+        
+        return isRelevant;
+    } catch (error) {
+        console.error('Error in verification:', error);
+        console.log(`Verification result: YES (DEFAULT - due to error)`);
+        console.log(`=== END VERIFICATION DEBUG ===\n`);
+        return true;
+    }
+}
 
 // async function retrieveFromPinecone(query: string, userId?: string): Promise<RetrievalResult> {
 //     try {
