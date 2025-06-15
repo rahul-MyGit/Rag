@@ -43,7 +43,7 @@ async function initializeClients(): Promise<void> {
     pinecone = new Pinecone({
         apiKey: ENV.PINECONE_API_KEY!,
     });
-    console.log('📌 Pinecone client initialized');
+    console.log('Pinecone client initialized');
 
     llm = new OpenAI({
         apiKey: ENV.OPENAI_API_KEY!,
@@ -59,7 +59,7 @@ async function initializeClients(): Promise<void> {
     Settings.llm = llm;
     Settings.embedModel = embedModel;
     
-    console.log('🤖 OpenAI client initialized');
+    console.log('OpenAI client initialized');
 
     await testConnections();
 }

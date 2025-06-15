@@ -67,7 +67,7 @@ export async function loadDocumentsWithMetadata(
             });
         });
 
-        console.log(`📚 Loaded ${documentsWithMetadata.length} documents from ${directoryPath}`);
+        console.log(`Loaded ${documentsWithMetadata.length} documents from ${directoryPath}`);
         return documentsWithMetadata;
 
     } catch (error) {
@@ -86,7 +86,7 @@ export async function loadTranscriptsWithClientMetadata(transcriptsPath: string)
             (filePath) => extractTranscriptMetadata(filePath, 1)
         );
         allDocs.push(...nathanDocs);
-        console.log(`📝 Loaded ${nathanDocs.length} Nathan transcripts`);
+        console.log(`Loaded ${nathanDocs.length} Nathan transcripts`);
     }
 
     const robertPath = path.join(transcriptsPath, 'robert');
@@ -96,7 +96,7 @@ export async function loadTranscriptsWithClientMetadata(transcriptsPath: string)
             (filePath) => extractTranscriptMetadata(filePath, 2)
         );
         allDocs.push(...robertDocs);
-        console.log(`📝 Loaded ${robertDocs.length} Robert transcripts`);
+        console.log(`Loaded ${robertDocs.length} Robert transcripts`);
     }
 
     return allDocs;

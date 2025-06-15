@@ -7,7 +7,7 @@ export async function processQuery(
 ): Promise<QueryResult> {
     const { query, clientId } = request;
     
-    console.log(`🔍 Processing query: "${query}" for client ${clientId || 'general'}`);
+    console.log(`Processing query: "${query}" for client ${clientId || 'general'}`);
     
     let enhancedQuery = query;
     if (clientId) {
