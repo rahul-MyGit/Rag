@@ -1,4 +1,3 @@
-// LlamaIndex-compatible types
 import type { NodeWithScore } from 'llamaindex';
 
 export interface AgencyMetadata {

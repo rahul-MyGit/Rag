@@ -7,10 +7,6 @@ import type { AgencyMetadata } from '../types';
 import path from 'path';
 import fs from 'fs';
 
-/**
- * Extract metadata from transcript filename
- * Format: {name}-{month}-{day}.pdf
- */
 export function extractTranscriptMetadata(filePath: string, clientId: 1 | 2): AgencyMetadata {
     const fileName = path.basename(filePath);
     const dateMatch = fileName.match(/(\w+)-(\d{2})-(\d{2})\.pdf/);
@@ -27,9 +23,6 @@ export function extractTranscriptMetadata(filePath: string, clientId: 1 | 2): Ag
     };
 }
 
-/**
- * Extract metadata from document filename
- */
 export function extractDocumentMetadata(filePath: string): AgencyMetadata {
     const fileName = path.basename(filePath);
     
@@ -41,9 +34,6 @@ export function extractDocumentMetadata(filePath: string): AgencyMetadata {
     };
 }
 
-/**
- * Load documents from directory with metadata using LlamaIndex readers
- */
 export async function loadDocumentsWithMetadata(
     directoryPath: string,
     metadataExtractor: (filePath: string) => AgencyMetadata
@@ -54,7 +44,6 @@ export async function loadDocumentsWithMetadata(
     }
 
     try {
-        // Use SimpleDirectoryReader with proper file type readers
         const reader = new SimpleDirectoryReader();
         const documents = await reader.loadData({
             directoryPath,
@@ -65,7 +54,6 @@ export async function loadDocumentsWithMetadata(
             }
         });
 
-        // Apply custom metadata to each document
         const documentsWithMetadata = documents.map(doc => {
             const filePath = doc.metadata.file_path;
             const customMetadata = metadataExtractor(filePath);
@@ -88,13 +76,9 @@ export async function loadDocumentsWithMetadata(
     }
 }
 
-/**
- * Load transcripts from nested directory structure
- */
 export async function loadTranscriptsWithClientMetadata(transcriptsPath: string): Promise<Document[]> {
     const allDocs: Document[] = [];
     
-    // Load Nathan's transcripts
     const nathanPath = path.join(transcriptsPath, 'nathan');
     if (fs.existsSync(nathanPath)) {
         const nathanDocs = await loadDocumentsWithMetadata(
@@ -105,7 +89,6 @@ export async function loadTranscriptsWithClientMetadata(transcriptsPath: string)
         console.log(`📝 Loaded ${nathanDocs.length} Nathan transcripts`);
     }
 
-    // Load Robert's transcripts
     const robertPath = path.join(transcriptsPath, 'robert');
     if (fs.existsSync(robertPath)) {
         const robertDocs = await loadDocumentsWithMetadata(

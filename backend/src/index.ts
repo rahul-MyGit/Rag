@@ -10,7 +10,6 @@ const PORT = 3001;
 app.use(cors());
 app.use(express.json());
 
-// Health check endpoint
 app.get('/health', (req, res) => {
     res.json({ 
         status: 'healthy', 
@@ -19,7 +18,6 @@ app.get('/health', (req, res) => {
     });
 });
 
-// Main chat endpoint with JSON response
 app.post('/ask', async (req, res) => {
     try {
         const request: ChatRequest = req.body;
@@ -37,17 +35,14 @@ app.post('/ask', async (req, res) => {
 
         console.log(`🔍 Chat request - Query: "${query}", Client: ${clientId || 'general'}`);
 
-        // Process query
         const result = await processQuery(request, agencyRouter);
 
-        // Extract source information
         const sources = result.sourceNodes ? result.sourceNodes.map(nodeWithScore => ({
             fileName: nodeWithScore.node.metadata?.fileName || nodeWithScore.node.metadata?.source || 'Unknown',
             score: nodeWithScore.score || 0,
             type: nodeWithScore.node.metadata?.type || 'document'
         })) : [];
 
-        // Return JSON response
         res.json({
             response: result.response,
             sources,
@@ -64,7 +59,6 @@ app.post('/ask', async (req, res) => {
     }
 });
 
-// Initialize and start server
 async function startServer() {
     try {
         console.log('🔧 Starting RAG system initialization...');
@@ -76,7 +70,7 @@ async function startServer() {
     }
 }
 
-// startServer();
+startServer();
         
 app.listen(PORT, () => {
     console.log(`🚀 Server is running on port ${PORT}`);

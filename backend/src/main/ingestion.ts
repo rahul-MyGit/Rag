@@ -9,9 +9,6 @@ import {
 import path from 'path';
 import fs from 'fs';
 
-/**
- * Build document index from policy documents
- */
 export async function buildDocumentIndex(): Promise<VectorStoreIndex | null> {
     console.log('📚 Building document index...');
 
@@ -37,9 +34,6 @@ export async function buildDocumentIndex(): Promise<VectorStoreIndex | null> {
     return documentIndex;
 }
 
-/**
- * Build transcript index from client transcripts
- */
 export async function buildTranscriptIndex(): Promise<VectorStoreIndex | null> {
     console.log('📝 Building transcript index...');
 

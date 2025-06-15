@@ -1,9 +1,6 @@
 import { RouterQueryEngine, BaseQueryEngine, VectorStoreIndex } from 'llamaindex';
 import type { ChatRequest, QueryResult, SourceInfo } from '../types';
 
-/**
- * Process query with client filtering for transcripts
- */
 export async function processQuery(
     request: ChatRequest,
     router: RouterQueryEngine
@@ -12,7 +9,6 @@ export async function processQuery(
     
     console.log(`🔍 Processing query: "${query}" for client ${clientId || 'general'}`);
     
-    // Add client context if specified
     let enhancedQuery = query;
     if (clientId) {
         const clientName = clientId === 1 ? 'Nathan' : clientId === 2 ? 'Robert' : 'unknown';
@@ -27,9 +23,6 @@ export async function processQuery(
     };
 }
 
-/**
- * Create client-specific query engine that filters transcripts by clientId
- */
 export function createClientQueryEngine(
     transcriptIndex: VectorStoreIndex,
     clientId: number
@@ -48,9 +41,6 @@ export function createClientQueryEngine(
     });
 }
 
-/**
- * Extract source information from query results
- */
 export function extractSourceInfo(sourceNodes: any[]): SourceInfo[] {
     if (!sourceNodes) return [];
     
