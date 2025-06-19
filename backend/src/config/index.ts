@@ -4,8 +4,10 @@ dotenv.config();
 
 export const CONFIG = {
     PINECONE: {
-        DOC_INDEX_NAME: 'documents-index',
-        TRANSCRIPT_INDEX_NAME: 'transcripts-index',
+        DOC_DENSE_INDEX_NAME: 'documents-dense',
+        DOC_SPARSE_INDEX_NAME: 'documents-sparse',
+        TRANSCRIPT_DENSE_INDEX_NAME: 'transcripts-dense',
+        TRANSCRIPT_SPARSE_INDEX_NAME: 'transcripts-sparse',
         DIMENSION: 1536,
         ENVIRONMENT: 'us-east-1'
     },
@@ -27,7 +29,11 @@ export const CONFIG = {
         SEMANTIC_WEIGHT: 0.5,
         BM25_WEIGHT: 0.5,
         TOP_K: 20,
-        RERANK_TOP_K: 5
+        RERANK_TOP_K: 5,
+        HYBRID: {
+            DENSE_WEIGHT: 0.5,
+            SPARSE_WEIGHT: 0.5
+        }
     }
 };
 

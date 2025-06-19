@@ -8,23 +8,38 @@ app.use(express.json());
 
 async function initialize() {
     try {
-        console.log('Initializing RAG system...');
+        console.log('🚀 Initializing RAG system...');
         await initializeRAGSystem();
         
-        // console.log('Starting ingestion process...');
+        // console.log('📚 Starting document ingestion process...');
         // await ingestDocuments();
 
-        // console.log('Starting transcript ingestion process...');
+        // console.log('💬 Starting transcript ingestion process...');
         // await ingestTranscripts();
-        console.log('Ingestion process complete.');
+        // console.log('✅ Ingestion process complete.');
+        
+        return true;
     } catch (error) {
-        console.error('Initialization failed:', error);
+        console.error('❌ Initialization failed:', error);
         process.exit(1);
     }
 }
 
-// Start initialization
-initialize();
+async function startServer() {
+    try {
+        console.log('🔧 Starting RAG system initialization...');
+        await initialize();
+        
+        const PORT = 3003;
+        app.listen(PORT, () => {
+            console.log(`🎉 Server is running on port ${PORT}`);
+            console.log('📋 RAG system is ready to accept queries!');
+        });
+    } catch (error) {
+        console.error('❌ Failed to start server:', error);
+        process.exit(1);
+    }
+}
 
 app.get("/", (_, res: Response) => {
     res.json({ message: "RAG System is running" });
@@ -45,11 +60,14 @@ app.post("/ask", async (req: Request, res: Response) => {
             });
             return;
         }
+        if(!clientId) {
+            res.status(400).json({ 
+                error: "Client ID is required" 
+            });
+            return;
+        }
 
-        // Map clientId to userId
-        const userId = clientId == 1 ? 'nathan' : 
-                      clientId == 2 ? 'robert' : 
-                      undefined;
+        const userId = clientId == 1 ? 'nathan' : 'robert'
 
         const result = await processQuery(question, userId);
 
@@ -70,8 +88,7 @@ app.post("/ask", async (req: Request, res: Response) => {
     }
 });
 
-app.listen(3000, () => {
-    console.log("Server is running on port 3000");
-});
+// Start the server with initialization
+startServer();
 
 export default app;

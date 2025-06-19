@@ -25,7 +25,7 @@ export interface QueryIntent {
     needsDocuments: boolean;
     needsTranscripts: boolean;
     confidence: number;
-    queryType: 'document' | 'transcript' | 'document_then_transcript' | 'transcript_then_document' | 'mixed';
+    queryType: 'document' | 'transcript' | 'mixed';
 }
 
 export interface RetrievalResult {
@@ -36,15 +36,10 @@ export interface RetrievalResult {
         id: string;
         score: number;
     }>;
-    searchStrategy: 'semantic' | 'bm25' | 'hybrid' | 'failed' | 'max-attempts-non-relevant' | 'max-attempts-reached';
+    searchStrategy: 'semantic' | 'bm25' | 'hybrid' | 'failed';
 }
 
-export interface HybridSearchResult {
-    document: Document;
-    semanticScore: number;
-    bm25Score: number;
-    combinedScore: number;
-}
+
 
 // export interface PineconeMatch {
 //     id: string;

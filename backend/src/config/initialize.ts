@@ -12,8 +12,15 @@ export let pinecone: Pinecone;
 export let embeddings: OpenAIEmbeddings;
 export let llm: ChatOpenAI;
 // export let reranker: CohereRerank;
-export let docVectorStore: PineconeStore | null = null;
-export let transcriptVectorStore: PineconeStore | null = null;
+// Dense vector stores
+export let docDenseVectorStore: PineconeStore | null = null;
+export let transcriptDenseVectorStore: PineconeStore | null = null;
+
+// Sparse vector stores (we'll use direct Pinecone client for these)
+export let docSparseIndex: any = null;
+export let transcriptSparseIndex: any = null;
+export let docDenseIndex: any = null;
+export let transcriptDenseIndex: any = null;
 
 export let docRetriever: ParentDocumentRetriever | null = null;
 
@@ -58,52 +65,56 @@ export async function initializeRAGSystem(): Promise<void> {
 async function initializePineconeIndexes(): Promise<void> {
     try {
         const existingIndexes = await pinecone.listIndexes();
+        
+        // Create indexes if they don't exist
+        const indexesToCreate = [
+            { name: CONFIG.PINECONE.DOC_DENSE_INDEX_NAME, type: 'dense' },
+            { name: CONFIG.PINECONE.DOC_SPARSE_INDEX_NAME, type: 'sparse' },
+            { name: CONFIG.PINECONE.TRANSCRIPT_DENSE_INDEX_NAME, type: 'dense' },
+            { name: CONFIG.PINECONE.TRANSCRIPT_SPARSE_INDEX_NAME, type: 'sparse' }
+        ];
 
-        if (!existingIndexes.indexes?.find(idx => idx.name === CONFIG.PINECONE.DOC_INDEX_NAME)) {
-            await pinecone.createIndex({
-                name: CONFIG.PINECONE.DOC_INDEX_NAME,
-                dimension: CONFIG.PINECONE.DIMENSION,
-                metric: 'cosine',
-                spec: {
-                    serverless: {
-                        cloud: 'aws',
-                        region: CONFIG.PINECONE.ENVIRONMENT
+        for (const { name, type } of indexesToCreate) {
+            if (!existingIndexes.indexes?.find(idx => idx.name === name)) {
+                const indexConfig: any = {
+                    name,
+                    dimension: type === 'dense' ? CONFIG.PINECONE.DIMENSION : 10000, // Max 20k for sparse, using 10k for safety
+                    metric: 'cosine',
+                    spec: {
+                        serverless: {
+                            cloud: 'aws',
+                            region: CONFIG.PINECONE.ENVIRONMENT
+                        }
                     }
-                }
-            });
-            console.log(`Created index: ${CONFIG.PINECONE.DOC_INDEX_NAME}`);
+                };
+
+                await pinecone.createIndex(indexConfig);
+                console.log(`Created ${type} index: ${name}`);
+                
+                // Wait a bit for index to be ready
+                await new Promise(resolve => setTimeout(resolve, 2000));
+            }
         }
 
-        if (!existingIndexes.indexes?.find(idx => idx.name === CONFIG.PINECONE.TRANSCRIPT_INDEX_NAME)) {
-            await pinecone.createIndex({
-                name: CONFIG.PINECONE.TRANSCRIPT_INDEX_NAME,
-                dimension: CONFIG.PINECONE.DIMENSION,
-                metric: 'cosine',
-                spec: {
-                    serverless: {
-                        cloud: 'aws',
-                        region: CONFIG.PINECONE.ENVIRONMENT
-                    }
-                }
-            });
-            console.log(`Created index: ${CONFIG.PINECONE.TRANSCRIPT_INDEX_NAME}`);
-        }
+        // Initialize index references
+        docDenseIndex = pinecone.index(CONFIG.PINECONE.DOC_DENSE_INDEX_NAME);
+        docSparseIndex = pinecone.index(CONFIG.PINECONE.DOC_SPARSE_INDEX_NAME);
+        transcriptDenseIndex = pinecone.index(CONFIG.PINECONE.TRANSCRIPT_DENSE_INDEX_NAME);
+        transcriptSparseIndex = pinecone.index(CONFIG.PINECONE.TRANSCRIPT_SPARSE_INDEX_NAME);
 
-        const docIndex = pinecone.index(CONFIG.PINECONE.DOC_INDEX_NAME);
-        const transcriptIndex = pinecone.index(CONFIG.PINECONE.TRANSCRIPT_INDEX_NAME);
-
-        docVectorStore = await PineconeStore.fromExistingIndex(embeddings, {
-            pineconeIndex: docIndex,
+        // Initialize LangChain vector stores for dense embeddings
+        docDenseVectorStore = await PineconeStore.fromExistingIndex(embeddings, {
+            pineconeIndex: docDenseIndex,
         });
 
-        transcriptVectorStore = await PineconeStore.fromExistingIndex(embeddings, {
-            pineconeIndex: transcriptIndex,
+        transcriptDenseVectorStore = await PineconeStore.fromExistingIndex(embeddings, {
+            pineconeIndex: transcriptDenseIndex,
         });
 
         docStore = new InMemoryStore();
 
         docRetriever = new ParentDocumentRetriever({
-            vectorstore: docVectorStore,
+            vectorstore: docDenseVectorStore,
             docstore: docStore,
             parentSplitter: new RecursiveCharacterTextSplitter({
                 chunkSize: CONFIG.CHUNKING.DOCUMENT.PARENT_SIZE,
@@ -119,7 +130,11 @@ async function initializePineconeIndexes(): Promise<void> {
             parentK: 5
         });
 
-        console.log('Vector stores and Parent Document Retrievers initialized successfully');
+        console.log('✅ All 4 Pinecone indexes initialized successfully:');
+        console.log(`  📚 Documents Dense: ${CONFIG.PINECONE.DOC_DENSE_INDEX_NAME}`);
+        console.log(`  📊 Documents Sparse: ${CONFIG.PINECONE.DOC_SPARSE_INDEX_NAME}`);
+        console.log(`  💬 Transcripts Dense: ${CONFIG.PINECONE.TRANSCRIPT_DENSE_INDEX_NAME}`);
+        console.log(`  📈 Transcripts Sparse: ${CONFIG.PINECONE.TRANSCRIPT_SPARSE_INDEX_NAME}`);
     } catch (error) {
         console.error('Error initializing Pinecone indexes:', error);
         throw error;

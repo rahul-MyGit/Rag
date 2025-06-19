@@ -7,11 +7,10 @@ import { type RetrievalResult } from "../types";
  * 
  * RETRIEVAL: analyze question intent → Embedding → Hybrid Search 
  * (documents: whole vectorDB | transcripts: user-specific chunks) → 
- * rerank chunks → Verification Layer (boolean YES/NO) → 
- * send to LLM with user query to generate response
+ * rerank chunks → send to LLM with user query to generate response
  */
 
-export async function processQuery(query: string, userId?: string): Promise<{
+export async function processQuery(query: string, userId: string): Promise<{
     answer: string;
     retrievalResult: RetrievalResult;
     processingSteps: string[];
@@ -28,11 +27,10 @@ export async function processQuery(query: string, userId?: string): Promise<{
 
         processingSteps.push("🚀 Executing retrieval pipeline:");
         processingSteps.push("  Step 1: Analyze question intent");
-        processingSteps.push("  Step 2: Embedding → Hybrid Search");
-        processingSteps.push("  Step 3: Rerank chunks"); 
-        processingSteps.push("  Step 4: Get parent context");
-        processingSteps.push("  Step 5: Verification Layer (boolean YES/NO)");
-        processingSteps.push("  Step 6: Generate response (if verified)");
+        processingSteps.push("  Step 2: Generate query embeddings");
+        processingSteps.push("  Step 3: Determine user context"); 
+        processingSteps.push("  Step 4: Execute agentic retrieval strategy");
+        processingSteps.push("  Step 5: Generate response");
 
         const retrievalResult = await retrieveContext(query, userId);
         
@@ -42,7 +40,7 @@ export async function processQuery(query: string, userId?: string): Promise<{
             processingSteps.push(`🎯 Strategy: ${retrievalResult.searchStrategy}`);
             processingSteps.push(`📊 Confidence: ${(retrievalResult.confidence * 100).toFixed(1)}%`);
         } else {
-            processingSteps.push("❌ No relevant content found after verification");
+            processingSteps.push("❌ No relevant content found");
         }
 
         processingSteps.push("🤖 Generating response with LLM...");
@@ -71,41 +69,3 @@ export async function processQuery(query: string, userId?: string): Promise<{
         };
     }
 }
-
-// export async function askQuestion(question: string, userId?: string): Promise<string> {
-//     const result = await processQuery(question, userId);
-//     return result.answer;
-// }
-
-/**
- * Debug query interface that returns detailed processing information
- */
-// export async function debugQuery(question: string, userId?: string): Promise<{
-//     answer: string;
-//     debug: {
-//         retrievalResult: RetrievalResult;
-//         processingSteps: string[];
-//         metadata: {
-//             hasContent: boolean;
-//             sources: string[];
-//             confidence: number;
-//             strategy: string;
-//         };
-//     };
-// }> {
-//     const result = await processQuery(question, userId);
-    
-//     return {
-//         answer: result.answer,
-//         debug: {
-//             retrievalResult: result.retrievalResult,
-//             processingSteps: result.processingSteps,
-//             metadata: {
-//                 hasContent: Boolean(result.retrievalResult.content),
-//                 sources: result.retrievalResult.sources.map(s => s.id),
-//                 confidence: result.retrievalResult.confidence,
-//                 strategy: result.retrievalResult.searchStrategy
-//             }
-//         }
-//     };
-// }
